@@ -1,138 +1,134 @@
-stm8/
+#define GPIO_BASE_ADDR $5000
+#define GPIOE_OFFS $14
+#define GPIOC_OFFS $A
+#define ODR $0
+#define DDR $2
+#define CR1 $3
 
-    #include "mapping.inc"
+#include "mapping.inc"
 
-    segment 'ram0'          
-result_add DS.B 1           
-result_sub DS.B 1           
-result_and DS.B 1           
-result_or DS.B 1            
-result_xor DS.B 1           
-result_xnor DS.B 1
-result_mul DS.B 1
-result_div DS.B 1         
-
-    segment 'rom'
+segment 'rom'
 main.l
-    ; initialize SP
-    ldw X,#stack_end
-    ldw SP,X
 
-    ; Addition
-    LD A, #$10              
-    ADD A, #$20             
-    LD result_add, A         
+; === Initialize Stack and Clear RAM ===
+ldw X, #stack_end
+ldw SP, X
 
-    ; Subtraction
-    LD A, #$30              
-    SUB A, #$10             
-    LD result_sub, A        
+; === Configure GPIO Pins ===
+; LED3 - GPIOE Pin 7
+mov { GPIO_BASE_ADDR + GPIOE_OFFS + DDR }, #%10000000 ; Set as output
+mov { GPIO_BASE_ADDR + GPIOE_OFFS + CR1 }, #%10000000 ; Push-pull mode
+; LED4 - GPIOC Pin 7
+mov { GPIO_BASE_ADDR + GPIOC_OFFS + DDR }, #%10000000 ; Set as output
+mov { GPIO_BASE_ADDR + GPIOC_OFFS + CR1 }, #%10000000 ; Push-pull mode
 
-    ; AND Operation
-    LD A, #$F0              
-    AND A, #$0F             
-    LD result_and, A        
+; === Main Loop ===
+main:
+    call task1    ;  Keep LED3 and LED4 permanently on
+    call task2    ;  Blink LED3 and LED4 together
+    call task3    ;  Blink LEDs alternately
+    jra main      ; Repeat the loop
 
-    ; OR Operation
-    LD A, #$F0            
-    OR A, #$0F              
-    LD result_or, A         
+; === : Turn LED3 and LED4 Permanently On ===
+task1:
+    mov { GPIO_BASE_ADDR + GPIOE_OFFS + ODR }, #%10000000 ; Turn on LED3
+    mov { GPIO_BASE_ADDR + GPIOC_OFFS + ODR }, #%10000000 ; Turn on LED4
+    ret
 
-    ; XOR Operation
-    LD A, #$AA           
-    XOR A, #$55             
-    LD result_xor, A       
+; ===  Blink LED3 and LED4 Simultaneously ===
+task2:
+    ; Turn LEDs On
+    mov { GPIO_BASE_ADDR + GPIOE_OFFS + ODR }, #%10000000 ; LED3 on
+    mov { GPIO_BASE_ADDR + GPIOC_OFFS + ODR }, #%10000000 ; LED4 on
+    call delay_long
 
-    ; XNOR Operation
-    LD A, #$AA          ;170 (10101010)   
-    XOR A, #$55         ;85 (01010101)    
-    CPL A                   
-    LD result_xnor, A   ;Result  11111111 but we have to reverse it which is 00000000    
+    ; Turn LEDs Off
+    mov { GPIO_BASE_ADDR + GPIOE_OFFS + ODR }, #%00000000 ; LED3 off
+    mov { GPIO_BASE_ADDR + GPIOC_OFFS + ODR }, #%00000000 ; LED4 off
+    call delay_long
+    ret
 
-    ; Multiplication by 2 (using shifting left)
-    LD A, #$03              
-    SLA A               
-    LD result_mul, A        
+; ===  Blink LEDs Alternately ===
+task3:
+    ; Turn LED3 On, LED4 Off
+    bset { GPIO_BASE_ADDR + GPIOE_OFFS + ODR }, #7 ; LED3 on
+    bres { GPIO_BASE_ADDR + GPIOC_OFFS + ODR }, #7 ; LED4 off
+    call delay_short
 
-    ; Division by 2 (using shifting right)
-    LD A, #$10              
-    SRL A                   
-    LD result_div, A        
+    ; Turn LED3 Off, LED4 On
+    bres { GPIO_BASE_ADDR + GPIOE_OFFS + ODR }, #7 ; LED3 off
+    bset { GPIO_BASE_ADDR + GPIOC_OFFS + ODR }, #7 ; LED4 on
+    call delay_short
+    ret
 
-    #ifdef RAM0    
-    ; clear RAM0
-ram0_start.b EQU $ram0_segment_start
-ram0_end.b EQU $ram0_segment_end
-    ldw X,#ram0_start
-clear_ram0.l
-    clr (X)
-    incw X
-    cpw X,#ram0_end    
-    jrule clear_ram0
-    #endif
+; === Short Delay Subroutine ===
+delay_short:
+    ldw X, #$4000
+delay_loop_short:
+    nop
+    decw X
+    jrne delay_loop_short
+    ret
 
-    #ifdef RAM1
-    ; clear RAM1
-ram1_start.w EQU $ram1_segment_start
-ram1_end.w EQU $ram1_segment_end    
-    ldw X,#ram1_start
-clear_ram1.l
-    clr (X)
-    incw X
-    cpw X,#ram1_end    
-    jrule clear_ram1
-    #endif
+; === Long Delay Subroutine ===
+delay_long:
+    ldw X, #$FFFF
+delay_loop_long:
+    nop
+    decw X
+    jrne delay_loop_long
+    ret
 
-    ; clear stack
-stack_start.w EQU $stack_segment_start
-stack_end.w EQU $stack_segment_end
-    ldw X,#stack_start
-clear_stack.l
-    clr (X)
-    incw X
-    cpw X,#stack_end    
-    jrule clear_stack
-
-    ; Infinite loop
+; === Infinite Loop (Optional) ===
 infinite_loop.l
     jra infinite_loop
 
-    interrupt NonHandledInterrupt
-NonHandledInterrupt.l
+; === Interrupt Placeholder ===
+interrupt NonHandledInterrupt
+    NonHandledInterrupt.l
     iret
 
-    segment 'vectit'
-    dc.l {$82000000+main}                                   
-    dc.l {$82000000+NonHandledInterrupt}    ; trap
-    dc.l {$82000000+NonHandledInterrupt}    ; irq0
-    dc.l {$82000000+NonHandledInterrupt}    ; irq1
-    dc.l {$82000000+NonHandledInterrupt}    ; irq2
-    dc.l {$82000000+NonHandledInterrupt}    ; irq3
-    dc.l {$82000000+NonHandledInterrupt}    ; irq4
-    dc.l {$82000000+NonHandledInterrupt}    ; irq5
-    dc.l {$82000000+NonHandledInterrupt}    ; irq6
-    dc.l {$82000000+NonHandledInterrupt}    ; irq7
-    dc.l {$82000000+NonHandledInterrupt}    ; irq8
-    dc.l {$82000000+NonHandledInterrupt}    ; irq9
-    dc.l {$82000000+NonHandledInterrupt}    ; irq10
-    dc.l {$82000000+NonHandledInterrupt}    ; irq11
-    dc.l {$82000000+NonHandledInterrupt}    ; irq12
-    dc.l {$82000000+NonHandledInterrupt}    ; irq13
-    dc.l {$82000000+NonHandledInterrupt}    ; irq14
-    dc.l {$82000000+NonHandledInterrupt}    ; irq15
-    dc.l {$82000000+NonHandledInterrupt}    ; irq16
-    dc.l {$82000000+NonHandledInterrupt}    ; irq17
-    dc.l {$82000000+NonHandledInterrupt}    ; irq18
-    dc.l {$82000000+NonHandledInterrupt}    ; irq19
-    dc.l {$82000000+NonHandledInterrupt}    ; irq20
-    dc.l {$82000000+NonHandledInterrupt}    ; irq21
-    dc.l {$82000000+NonHandledInterrupt}    ; irq22
-    dc.l {$82000000+NonHandledInterrupt}    ; irq23
-    dc.l {$82000000+NonHandledInterrupt}    ; irq24
-    dc.l {$82000000+NonHandledInterrupt}    ; irq25
-    dc.l {$82000000+NonHandledInterrupt}    ; irq26
-    dc.l {$82000000+NonHandledInterrupt}    ; irq27
-    dc.l {$82000000+NonHandledInterrupt}    ; irq28
-    dc.l {$82000000+NonHandledInterrupt}    ; irq29
+segment 'vectit'
+; === Reset Vector ===
+dc.l {$82000000+main}              ; Reset vector (entry point)
 
-    end
+; === Trap Vector ===
+dc.l {$82000000+NonHandledInterrupt} ; Trap
+
+; === IRQ Vectors ===
+dc.l {$82000000+NonHandledInterrupt} ; IRQ0
+dc.l {$82000000+NonHandledInterrupt} ; IRQ1
+dc.l {$82000000+NonHandledInterrupt} ; IRQ2
+dc.l {$82000000+NonHandledInterrupt} ; IRQ3
+dc.l {$82000000+NonHandledInterrupt} ; IRQ4
+dc.l {$82000000+NonHandledInterrupt} ; IRQ5
+dc.l {$82000000+NonHandledInterrupt} ; IRQ6
+dc.l {$82000000+NonHandledInterrupt} ; IRQ7
+dc.l {$82000000+NonHandledInterrupt} ; IRQ8
+dc.l {$82000000+NonHandledInterrupt} ; IRQ9
+dc.l {$82000000+NonHandledInterrupt} ; IRQ10
+dc.l {$82000000+NonHandledInterrupt} ; IRQ11
+dc.l {$82000000+NonHandledInterrupt} ; IRQ12
+dc.l {$82000000+NonHandledInterrupt} ; IRQ13
+dc.l {$82000000+NonHandledInterrupt} ; IRQ14
+dc.l {$82000000+NonHandledInterrupt} ; IRQ15
+dc.l {$82000000+NonHandledInterrupt} ; IRQ16
+dc.l {$82000000+NonHandledInterrupt} ; IRQ17
+dc.l {$82000000+NonHandledInterrupt} ; IRQ18
+dc.l {$82000000+NonHandledInterrupt} ; IRQ19
+dc.l {$82000000+NonHandledInterrupt} ; IRQ20
+dc.l {$82000000+NonHandledInterrupt} ; IRQ21
+dc.l {$82000000+NonHandledInterrupt} ; IRQ22
+dc.l {$82000000+NonHandledInterrupt} ; IRQ23
+dc.l {$82000000+NonHandledInterrupt} ; IRQ24
+dc.l {$82000000+NonHandledInterrupt} ; IRQ25
+dc.l {$82000000+NonHandledInterrupt} ; IRQ26
+dc.l {$82000000+NonHandledInterrupt} ; IRQ27
+dc.l {$82000000+NonHandledInterrupt} ; IRQ28
+dc.l {$82000000+NonHandledInterrupt} ; IRQ29
+dc.l {$82000000+NonHandledInterrupt} ; IRQ30
+dc.l {$82000000+NonHandledInterrupt} ; IRQ31
+
+; Additional vectors can be added here if needed
+
+end
